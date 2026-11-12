@@ -128,20 +128,6 @@ node test\probe-client-graph.mjs
 | 面板里有灰勾选的 `· 会话固定` | agent 作用域内注册的工具，框架规定 `tools.restrict` 管不到 |
 | 想一次性恢复 | 面板点 `全开`，或删掉 `state.json` |
 
-## 自测
-
-```bat
-node test\test-host.mjs             :: Host：分组/持久化/restrict 重装/HTTP/命令/工具（12 项）
-node test\test-client.mjs           :: 客户端：bundle 协议、slot 注册、默认收起、整组一键、真实 React 渲染（6 项）
-node test\verify-config.mjs         :: 组合包声明（bundle patch / locale / icon / 文档）
-node test\verify-client-inject.mjs  :: dsh.client.inject 点名的包确实是启动图里的行
-node test\probe-route.mjs           :: 打真实实例，看 400 / 200 / 404
-node test\probe-client-graph.mjs    :: 启动图里有没有这一行、bundle 能否取到
-node test\probe-live.mjs            :: $env:SESSION=… 后看某个会话的目录 / agent 视图
-```
-
-路径与端口都由 [test/paths.mjs](test/paths.mjs) 解析，可用 `DSH_APP` / `DSH_HARNESS` / `DSH_URL` / `SESSION` 覆盖。
-
 ## 已知边界
 
 - **agent 作用域里注册的工具关不掉**：框架规定「查看作用域自己的注册不受 restrict 影响」，这类工具标
@@ -150,16 +136,10 @@ node test\probe-live.mjs            :: $env:SESSION=… 后看某个会话的目
 - **面板文案没走 i18n**：中文硬编码在 bundle 里。
 - **HTTP 只监听回环、没有额外鉴权**：它只能改「本会话能用哪些工具」，不碰凭证、文件内容和执行权限。
 
-## 发版（维护者）
+## 开发
 
-仓库里 `.github/workflows/publish.yml` 走 npm 的 **Trusted Publishing（OIDC）**，不需要任何 token：
-
-```powershell
-# 改 package.json 的 version
-git tag v0.2.2; git push --tags      # 自动发布 + provenance
-```
-
-前提是在 npmjs 的包设置里配过 trusted publisher（`suqing114` / `dsh-tool-switch` / `publish.yml` /
-`npm publish`）。两个已踩过的坑：`npm publish` 会先把版本放进 staged 队列、**一两分钟后**才出现在注册表
-（同版本重发会 `E409 Cannot publish over previously staged version`）；bypass-2FA 的令牌**做不了
-`npm unpublish`**（403）。
+- `index.js` 是 Host 半侧（Cordis 插件，`inject: ['tools', 'agents']`），`lib/client.js` 是手写客户端 bundle，
+  `cordis.patch.yml` 是组合包自带的补丁层（用包名挂载 Host 入口）。
+- 自测脚本在 `test/`：`node test\test-host.mjs`（Host 逻辑，最小 ctx 桩）、`node test\test-client.mjs`
+  （借 app 自带 React 做静态渲染）、`node test\probe-*.mjs`（打真实实例）。路径与端口由
+  [test/paths.mjs](test/paths.mjs) 解析，可用 `DSH_APP` / `DSH_HARNESS` / `DSH_URL` / `SESSION` 覆盖。
