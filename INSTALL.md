@@ -135,6 +135,62 @@ Copy-Item -Recurse "C:\Users\<你>\Documents\Codex\dsh-tool-switch" `
 
 ---
 
+## 方式 C：用包管理器装（Git / tarball / 注册表）
+
+先弄清一件事：`pnpm add` 只把包放进 `node_modules`，DSH 还要知道「这个组合包要参与组合」。
+所以是**两步**——先装包，再让 profile 认它（插件页做的就是这两步）。
+
+### C-1 从 GitHub 直接装
+
+```powershell
+cd <PROFILE_DIR>
+pnpm add github:suqing114/dsh-tool-switch#v0.2.0     # 建议锁 tag，别跟 main 漂移
+```
+
+然后二选一让 profile 认它：
+
+- 把 `"dsh-tool-switch"` 加进 `<PROFILE_DIR>\package.json` 的 `dsh.profile.bundles` 数组
+  （它自带补丁层，会自动插入 Host 入口）；
+- 或者在 `<HARNESS_DIR>\cordis.patch.yml` 里 insert 一行 `name: 'dsh-tool-switch'`（用包名）。
+
+> 实测（2026-11-13，pnpm 10.34.5）：空目录里 `pnpm add github:suqing114/dsh-tool-switch` →
+> `+ dsh-tool-switch 0.2.0`；装出来的 `index.js`、`lib/client.js` 都能过 `node --check`，
+> `dsh.bundle.patch` / `dsh.client` 声明完整。
+
+### C-2 从本地 tarball 装
+
+```powershell
+cd <PLUGIN_DIR>
+npm pack                                    # 产出 dsh-tool-switch-0.2.0.tgz，28 kB，只含发布文件
+cd <PROFILE_DIR>
+pnpm add "file:C:\Users\<你>\Documents\Codex\dsh-tool-switch\dsh-tool-switch-0.2.0.tgz"
+```
+
+### C-3 从 npm 注册表装
+
+需要先发布（仓库现在是 `private: true`，本机 npm 也没登录）：
+
+```powershell
+# 在 <PLUGIN_DIR>：把 package.json 里的 "private": true 去掉，然后
+npm login
+npm publish --access public
+# 之后任何地方
+pnpm add dsh-tool-switch
+```
+
+### C-4 本地开发：link 进去
+
+```powershell
+cd <PROFILE_DIR>
+pnpm add "link:C:\Users\<你>\Documents\Codex\dsh-tool-switch"
+```
+
+之后你改仓库里的代码，profile 里的那份立刻跟着变（Host 侧仍需重启或换 `?v=`）。
+
+> ⚠️ 已经用方式 A / B 装过的，**不要再用 pnpm 装一遍**：同一份插件被两个 Loader
+> 来源解析到，客户端会报 `resolves from multiple active Loader sources` 并拒绝组图。
+> 换方式之前先把旧的那条摘掉。
+
 ## 装完怎么验（三条，从底层往上）
 
 ```powershell

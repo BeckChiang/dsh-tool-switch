@@ -87,12 +87,21 @@ headless 入口就没了，所以即使 `all off` 它也留在 allow 集合里�
 
 ## 安装 / 卸载
 
-**完整步骤看 [INSTALL.md](INSTALL.md)**（三条验证命令、常见问题、跨平台路径都在那儿）。三步速览：
+**完整步骤看 [INSTALL.md](INSTALL.md)**（四种装法、三条验证命令、常见问题、跨平台路径都在那儿）。速览：
 
 1. 把仓库放到任意目录，例如 `C:\Users\<你>\Documents\Codex\dsh-tool-switch`。
-2. 二选一挂上去：
+2. 挑一种挂上去：
    - **A（推荐）当作组合包安装**：DSH 左侧栏 **插件 → 安装**，填这个目录的绝对路径
      （或本仓库地址），确认后再刷新页面。仓库自带的 `cordis.patch.yml` 会负责接好 Host 入口。
+   - **C 包管理器直装**（就是「别的插件怎么装我就怎么装」）：
+
+     ```powershell
+     cd <PROFILE_DIR>
+     pnpm add github:suqing114/dsh-tool-switch#v0.2.0   # 或 file:<本地 tgz> / link:<本地目录>
+     # 再把 "dsh-tool-switch" 加进本文件 dsh.profile.bundles（或用包名写进 cordis.patch.yml）
+     ```
+
+     `pnpm add` 只负责放包，profile 还得知道这个组合包要参与组合——两步都要做。
    - **B 手工挂进补丁层**：在 `<HARNESS_DIR>\cordis.patch.yml` 末尾追加
      （Windows 下 `<HARNESS_DIR>` = `%APPDATA%\dsh-desktop\harness`）：
 

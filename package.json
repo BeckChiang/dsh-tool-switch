@@ -12,6 +12,16 @@
     "./icon": "./icon.svg",
     "./package.json": "./package.json"
   },
+  "files": [
+    "index.js",
+    "lib/",
+    "locale/",
+    "icon.svg",
+    "cordis.patch.yml",
+    "README.md",
+    "INSTALL.md",
+    "LICENSE"
+  ],
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
