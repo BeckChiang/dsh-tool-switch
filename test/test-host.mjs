@@ -62,23 +62,36 @@ const tools = {
       registrations: new Map(),
     }
   },
+  register(definition) {
+    registeredTools.push(definition)
+    return () => registeredTools.splice(registeredTools.indexOf(definition), 1)
+  },
 }
 
 const agents = new Map()
 const agentsService = {
   list: () => [...agents.values()],
   get: (id) => agents.get(id),
+  currentInitiator: () => undefined,
 }
 
 // --- 假的 ctx --------------------------------------------------------------
 const listeners = new Map()
 const disposers = []
 const routes = new Map()
+const registeredCommands = []
+const registeredTools = []
 
 const ctx = {
   logger: { warn: (...args) => console.log('[warn]', ...args), info() {}, error: console.error },
   tools,
   agents: agentsService,
+  commands: {
+    register(definition) {
+      registeredCommands.push(definition)
+      return () => registeredCommands.splice(registeredCommands.indexOf(definition), 1)
+    },
+  },
   on(event, fn) {
     if (!listeners.has(event)) listeners.set(event, [])
     listeners.get(event).push(fn)
@@ -274,7 +287,107 @@ const SESSION = 'sess-abc'
   console.log('✓ 输入校验')
 }
 
-// 10) 卸载时撤销全部遮罩
+// 10) 斜杠命令 /tools：headless / CLI 里没有按钮时的入口
+{
+  const command = registeredCommands.at(-1)
+  assert.ok(command, '应注册 /tools 命令')
+  assert.equal(command.name, 'tools')
+  const run = (rawInput) => command.handler({ agent: agents.get(SESSION), rawInput })
+  const stateOf = async () => (await call('GET', `${ROUTE}?session=${SESSION}`)).json
+
+  // 先把状态清成「全开」
+  await call('POST', ROUTE, { session: SESSION, disabled: [] })
+
+  const listed = run('')
+  assert.equal(listed.kind, 'success', `list 应成功：${listed.text}`)
+  assert.ok(listed.text.includes('可用'), 'list 应带可用数量')
+  assert.ok(listed.text.includes('会话与计划'), 'list 应列出分组')
+
+  // 按分组标签关
+  const offLabel = run('off 终端与执行')
+  assert.equal(offLabel.kind, 'success', offLabel.text)
+  let state = await stateOf()
+  assert.ok(state.disabled.includes('pwsh'), '「终端与执行」应把 pwsh 关掉')
+  assert.ok(!state.disabled.includes('web_fetch'), '不应波及其它组')
+
+  // 按 MCP 服务器短名关（mcp__rea__open_binary 在 mcp:rea 组里）
+  const offRea = run('off rea')
+  assert.equal(offRea.kind, 'success', offRea.text)
+  state = await stateOf()
+  assert.ok(state.disabled.includes('mcp__rea__open_binary'), 'off rea 应关掉 rea 全部工具')
+
+  // 按前缀打开
+  const onPrefix = run('on mcp__rea__')
+  assert.equal(onPrefix.kind, 'success', onPrefix.text)
+  state = await stateOf()
+  assert.ok(!state.disabled.some((name) => name.startsWith('mcp__rea__')), '前缀 on 应把 rea 全开回来')
+  assert.ok(state.disabled.includes('pwsh'), '不应顺手把 pwsh 打开')
+
+  // 动词在后的写法：all on / all off
+  const allOff = run('all off')
+  assert.equal(allOff.kind, 'success', allOff.text)
+  state = await stateOf()
+  assert.equal(state.mode, 'custom')
+  assert.equal(state.counts.enabled, state.counts.fixed, 'all off 后只剩不可关闭的工具')
+
+  const allOn = run('all on')
+  assert.equal(allOn.kind, 'success', allOn.text)
+  state = await stateOf()
+  assert.equal(state.mode, 'all')
+
+  // reset 也能回到全开（先关一组再 reset）
+  run('off web')
+  assert.equal((await stateOf()).mode, 'custom')
+  const reset = run('reset')
+  assert.equal(reset.kind, 'success', reset.text)
+  assert.equal((await stateOf()).mode, 'all')
+
+  // 不认识的组 / 动作都要报错而不是静默
+  assert.equal(run('off 不存在的组').kind, 'error')
+  assert.equal(run('frobnicate x').kind, 'error')
+
+  // 直接 POST 也关不掉 tool_switch 自己（headless 唯一入口）
+  await call('POST', ROUTE, { session: SESSION, disabled: ['tool_switch', 'pwsh'] })
+  state = await stateOf()
+  assert.ok(!state.disabled.includes('tool_switch'), 'tool_switch 永不被关')
+  assert.ok(state.disabled.includes('pwsh'))
+
+  console.log('✓ /tools：list / 分组标签 / MCP 短名 / 前缀 / all on|off / reset / 报错')
+}
+
+// 11) 模型可调用的 tool_switch（QQ 等 headless 入口靠它）
+{
+  const definition = registeredTools.at(-1)
+  assert.ok(definition, '应注册 tool_switch 工具')
+  assert.equal(definition.name, 'tool_switch')
+  assert.equal(definition.parameters.required[0], 'action')
+  assert.deepEqual(definition.parameters.properties.action.enum, ['list', 'off', 'on', 'reset'])
+
+  await call('POST', ROUTE, { session: SESSION, disabled: [] })
+  const agent = agents.get(SESSION)
+
+  const listed = await definition.execute({ action: 'list' }, { agent })
+  assert.equal(listed.ok, true)
+  assert.ok(listed.message.includes('可用'), listed.message)
+  assert.equal(definition.output.render({}, listed)[0].type, 'text')
+
+  const off = await definition.execute({ action: 'off', target: '网络检索' }, { agent })
+  assert.equal(off.ok, true, off.message)
+  assert.equal(off.total - off.enabled, 2, '网络检索 两件都该关掉')
+
+  const on = await definition.execute({ action: 'on', target: 'web' }, { agent })
+  assert.equal(on.ok, true, on.message)
+  assert.equal(on.enabled, on.total)
+
+  // 没有 agent 时（程序化调用）应给结构化错误而不是抛异常
+  const orphan = await definition.execute({ action: 'off', target: 'web' }, {})
+  assert.equal(orphan.ok, false)
+  assert.ok(orphan.message.includes('会话'))
+
+  console.log('✓ tool_switch：list / off / on / 无会话时的错误')
+}
+
+// 12) 卸载时撤销全部遮罩
 {
   const before = restrictCalls.filter((call) => call.disposed !== true).length
   for (const dispose of [...disposers].reverse()) dispose()

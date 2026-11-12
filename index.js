@@ -34,6 +34,9 @@ const MAX_BODY_BYTES = 64 * 1024
 /** 工具名长度上限（防止脏状态文件把 restrict 撑爆）。 */
 const MAX_NAME_LENGTH = 200
 
+/** 模型可调用的开关工具名；它自己永远不会被关掉，否则唯一的 headless 入口就没了。 */
+const SWITCH_TOOL_NAME = 'tool_switch'
+
 // ---------------------------------------------------------------------------
 // 分组规则：先按内置能力分类，MCP 工具按服务器单独成组，认不出来的再按
 // 名字前缀兜底（community 插件通常用 <产物>_<动作> 命名，例如 x_post、
@@ -456,9 +459,8 @@ export function apply(ctx, config) {
         send(res, 400, { ok: false, error: 'missing disabled[]' })
         return
       }
-      store.set(sessionId, body.disabled)
-      syncSession(sessionId)
-      send(res, 200, buildState(sessionId))
+      // 走同一个写入路径：过滤掉「永远不许关」的 tool_switch，再重装遮罩。
+      send(res, 200, applySelection(sessionId, body.disabled))
     } catch (error) {
       try {
         send(res, 500, { ok: false, error: String(error?.message ?? error) })
@@ -476,4 +478,242 @@ export function apply(ctx, config) {
       /* origin 只在绑定后可用 */
     }
   })
+
+  // ---------------------------------------------------------------------------
+  // 不依赖 UI 的两条通道
+  //
+  // 桌面版/网页版靠 composer 下那个按钮；但 CLI、QQ 这类入口没有按钮，也没有
+  // 一定存在的 webServer。所以同一个选择逻辑再开两条口：
+  //   · 模型可调用的工具 `tool_switch`（任何入口都通，用户在聊天里说一句就行）
+  //   · 斜杠命令 `/tools`（有命令适配器的交互式入口，直接给用户用，不进模型上下文）
+  // 三者写的是同一份 store、走同一个 syncSession，选哪个都一样生效。
+  // ---------------------------------------------------------------------------
+
+  /** 这个会话现在能看见的工具（按 agent 视图）。 */
+  function catalogOf(sessionId) {
+    const state = buildState(sessionId)
+    const tools = []
+    for (const group of state.groups) {
+      for (const tool of group.tools) {
+        tools.push({ name: tool.name, group: group.id, label: group.label, locked: tool.locked })
+      }
+    }
+    return { state, tools }
+  }
+
+  /**
+   * 把用户/模型写的目标解析成工具名集合。
+   * 支持：all、分组 id（shell / mcp:rea / x:comfyui）、分组标签（终端与执行 / rea / rea · MCP）、
+   * 精确工具名、前缀（mcp__rea__）、通配（mcp__rea__*）。
+   */
+  function resolveTargets(sessionId, spec) {
+    const needle = String(spec ?? '').trim()
+    if (needle.length === 0) return { error: '缺少目标' }
+    const { tools } = catalogOf(sessionId)
+    const restrictable = tools.filter((tool) => !tool.locked)
+    if (restrictable.length === 0) return { error: '这个会话没有可开关的工具' }
+
+    if (/^all$/i.test(needle) || needle === '全部') {
+      return { names: restrictable.map((tool) => tool.name), label: '全部可关闭工具' }
+    }
+
+    const byName = restrictable.filter((tool) => tool.name === needle)
+    if (byName.length > 0) return { names: byName.map((tool) => tool.name), label: needle }
+
+    const normalise = (text) => text.toLowerCase().replace(/\s+/g, '').replace(/·/g, '').replace(/mcp$/u, '')
+    const wanted = normalise(needle)
+    const groups = new Map()
+    for (const tool of restrictable) {
+      const list = groups.get(tool.group) ?? []
+      list.push(tool.name)
+      groups.set(tool.group, list)
+    }
+    const groupIds = [...groups.keys()]
+    const hitGroup = groupIds.find((id) => id.toLowerCase() === needle.toLowerCase())
+      ?? groupIds.find((id) => normalise(id) === wanted)
+      ?? groupIds.find((id) => id.startsWith('mcp:') && normalise(id.slice(4)) === wanted)
+    if (hitGroup !== undefined) {
+      const label = restrictable.find((tool) => tool.group === hitGroup)?.label ?? hitGroup
+      return { names: groups.get(hitGroup), label }
+    }
+    const hitLabel = [...new Set(restrictable.map((tool) => tool.label))]
+      .find((label) => normalise(label) === wanted)
+    if (hitLabel !== undefined) {
+      return { names: restrictable.filter((tool) => tool.label === hitLabel).map((tool) => tool.name), label: hitLabel }
+    }
+
+    if (needle.includes('*')) {
+      const pattern = new RegExp(`^${needle.split('*').map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`)
+      const names = restrictable.filter((tool) => pattern.test(tool.name)).map((tool) => tool.name)
+      if (names.length > 0) return { names, label: needle }
+      return { error: `「${needle}」没有匹配到工具` }
+    }
+
+    const prefixed = restrictable.filter((tool) => tool.name.startsWith(needle)).map((tool) => tool.name)
+    if (prefixed.length > 0) return { names: prefixed, label: `${needle}*` }
+
+    return { error: `「${needle}」没有匹配到工具或分组（用 /tools 看分组名）` }
+  }
+
+  /** 写选择并立刻重装遮罩。`tool_switch` 自己永不被关掉，免得把唯一的入口关了。 */
+  function applySelection(sessionId, disabled) {
+    const next = new Set()
+    for (const name of disabled) if (name !== SWITCH_TOOL_NAME) next.add(name)
+    store.set(sessionId, next)
+    syncSession(sessionId)
+    return buildState(sessionId)
+  }
+
+  function summaryLines(sessionId) {
+    const state = buildState(sessionId)
+    const lines = []
+    for (const group of state.groups) {
+      const closeable = group.tools.filter((tool) => !tool.locked)
+      const off = closeable.filter((tool) => !tool.enabled).length
+      const closed = closeable.length > 0 && off === closeable.length
+      lines.push(`  ${closed ? '✕' : '·'} ${group.label} ${group.tools.length - off}/${group.tools.length}`)
+    }
+    return { state, lines }
+  }
+
+  function summaryText(sessionId) {
+    const { state, lines } = summaryLines(sessionId)
+    return [
+      `工具：${state.counts.enabled}/${state.counts.total} 可用${state.mode === 'custom' ? '（有工具被关）' : ''}`,
+      ...lines,
+      '用法：/tools off <分组|工具|前缀> ｜ /tools on <…> ｜ /tools all on ｜ /tools all off',
+    ].join('\n')
+  }
+
+  /** 工具执行时拿到的 agent：优先用 exec 上的，其次用驱动链上的发起者。 */
+  function agentOf(exec) {
+    if (exec?.agent !== undefined && exec.agent !== null) return exec.agent
+    try {
+      return ctx.agents.currentInitiator?.()
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * 执行一个开关动作。action: list | off | on | reset。
+   * 返回给命令/工具的文本与状态。
+   */
+  function runAction(sessionId, action, target) {
+    const verb = String(action ?? '').trim().toLowerCase()
+    if (verb === '' || verb === 'list') return { ok: true, state: buildState(sessionId), text: summaryText(sessionId) }
+
+    const disabled = store.disabled(sessionId)
+
+    if (verb === 'reset') {
+      const state = applySelection(sessionId, [])
+      return { ok: true, state, text: `已恢复全部启用（${state.counts.total}/${state.counts.total}）` }
+    }
+    if (verb !== 'off' && verb !== 'on') return { ok: false, text: `不认识的动作「${action}」（用 list/off/on/reset）` }
+
+    const specs = String(target ?? '').trim().split(/[\s,]+/).filter((part) => part.length > 0)
+    if (specs.length === 0) return { ok: false, text: `要 ${verb} 什么？例如 /tools ${verb} rea` }
+
+    const applied = []
+    for (const spec of specs) {
+      const resolved = resolveTargets(sessionId, spec)
+      if (resolved.error !== undefined) return { ok: false, text: resolved.error }
+      for (const name of resolved.names) {
+        if (verb === 'off') disabled.add(name)
+        else disabled.delete(name)
+      }
+      applied.push(`${resolved.label}（${resolved.names.length}）`)
+    }
+
+    const state = applySelection(sessionId, disabled)
+    const now = verb === 'off' ? '已关闭' : '已启用'
+    return {
+      ok: true,
+      state,
+      text: `${now}：${applied.join('、')} → 现在 ${state.counts.enabled}/${state.counts.total} 可用（下一条消息生效）`,
+    }
+  }
+
+  // --- 斜杠命令（有命令适配器的入口：CLI / 网页 composer） -------------------
+  ctx.inject(['commands'], (commandCtx) => {
+    commandCtx.effect(
+      () =>
+        commandCtx.commands.register({
+          name: 'tools',
+          description: '查看或开关本会话里模型可用的工具',
+          input: { hint: '[off|on] <分组|工具名|前缀> | all on|all off | reset' },
+          handler: ({ agent, rawInput }) => {
+            const sessionId = sessionIdOf(agent)
+            if (sessionId === undefined) return { kind: 'error', text: '拿不到会话 id' }
+            const input = String(rawInput ?? '').trim()
+            // `all on` / `all off` 这种「动词在前」的写法也认
+            const allFirst = /^(all|全部)\s+(on|off|启用|关闭)$/i.exec(input)
+            const [word, ...rest] = input.split(/\s+/)
+            const result = allFirst !== null
+              ? runAction(sessionId, allFirst[2].toLowerCase().replace('启用', 'on').replace('关闭', 'off'), 'all')
+              : runAction(sessionId, word === undefined ? 'list' : word, rest.join(' '))
+            return { kind: result.ok ? 'success' : 'error', text: result.text }
+          },
+        }),
+      'tool-switch: /tools command',
+    )
+  })
+
+  // --- 模型可调用的工具（任何入口都通，包括 QQ / headless） -------------------
+  try {
+    const definition = {
+      name: SWITCH_TOOL_NAME,
+      description:
+        '查看或开关当前会话里模型可用的工具。用户说「把 XX 类工具关掉/打开」时用它；关掉的工具会从工具清单里消失，下一条消息生效。',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            enum: ['list', 'off', 'on', 'reset'],
+            description: 'list 只看；off 关闭；on 启用；reset 全部启用',
+          },
+          target: {
+            type: 'string',
+            description: '分组名（如 rea、终端与执行、mcp:rea）、精确工具名、前缀（mcp__rea__）或 all；list/reset 可省略',
+          },
+        },
+        required: ['action'],
+        additionalProperties: false,
+      },
+      output: {
+        schema: {
+          type: 'object',
+          properties: {
+            ok: { type: 'boolean' },
+            action: { type: 'string' },
+            enabled: { type: 'number' },
+            total: { type: 'number' },
+            message: { type: 'string' },
+          },
+          required: ['ok', 'message'],
+          additionalProperties: false,
+        },
+        render: (_args, value) => [{ type: 'text', text: String(value?.message ?? '') }],
+      },
+      async execute(args, exec) {
+        const sessionId = sessionIdOf(agentOf(exec) ?? {})
+        if (sessionId === undefined) {
+          return { ok: false, action: String(args?.action ?? ''), message: '拿不到当前会话，无法改工具开关' }
+        }
+        const result = runAction(sessionId, args?.action, args?.target)
+        return {
+          ok: result.ok,
+          action: String(args?.action ?? ''),
+          enabled: result.state?.counts?.enabled ?? 0,
+          total: result.state?.counts?.total ?? 0,
+          message: result.text,
+        }
+      },
+    }
+    ctx.effect(() => ctx.tools.register(definition), 'tool-switch: tool_switch tool')
+  } catch (error) {
+    warn('registering tool_switch failed', error)
+  }
 }
+

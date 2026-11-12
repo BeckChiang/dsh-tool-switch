@@ -165,6 +165,36 @@ node test\probe-route.mjs
 
 ---
 
+## headless / QQ 这类没有输入框的入口
+
+按钮是给页面用的。没有页面（甚至没有 `webServer`）的时候，用另外两条通道——它们和按钮写同一份状态：
+
+1. **直接跟模型说**：在会话里说「把 rea 那类工具关掉 / 打开」，模型会调用 `tool_switch`
+   （`action: off|on|list|reset`，`target` 认分组名、`mcp__rea__` 前缀、精确工具名或 `all`）。
+   这条**不需要 webServer**，只要有 agent 能跑工具就行，QQ 那种转发式入口最合适。
+2. **斜杠命令**（需要该入口有命令适配器，例如 CLI 或网页 composer）：
+
+   ```
+   /tools                     看分组与当前开关
+   /tools off rea             关掉整组
+   /tools on mcp__rea__       按前缀打开
+   /tools all off｜all on      全关 / 全开
+   /tools reset               全部恢复
+   ```
+
+3. **HTTP**（有 `webServer` 时，脚本/外部程序用）：
+
+   ```bash
+   curl "http://127.0.0.1:43129/tool-switch/state?session=session-<uuid>"
+   curl -X POST "http://127.0.0.1:43129/tool-switch/state" \
+        -H 'content-type: application/json' \
+        -d '{"session":"session-<uuid>","disabled":["mcp__rea__open_binary"]}'
+   ```
+
+> `webServer` 只有 `dsh-web-app` 这个组合包会挂（桌面版、`dsh web` 自带；纯 CLI 组合没有），
+> 所以脚本方案在没有页面的部署里要先确认这条路由存在（404 = 没挂，改用前两条）。
+> `tool_switch` 自己不会被关掉，`all off` 之后它也还在，所以永远留着一个人能改回来的入口。
+
 ## 常见问题
 
 | 现象 | 原因 / 处理 |

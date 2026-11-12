@@ -63,6 +63,28 @@ agent.ctx.tools.restrict({ allow: [...这个会话允许的工具名] })
 
 路由挂在框架的 `webServer` 上，同源、只监听回环；`/api` 那套鉴权不覆盖它，所以页面里 `fetch` 直接用。
 
+## 三个入口，同一份状态
+
+按钮只是壳。真正改状态的路径有三条，写的是同一份 `state.json`、走同一个重装逻辑：
+
+| 入口 | 谁用 | 依赖 |
+|---|---|---|
+| 输入框下方的 `⚙ 工具` 按钮 | 桌面版 / 网页版 | 需要页面（客户端 bundle） |
+| `/tools` 斜杠命令 | 有命令适配器的交互式入口（CLI、网页 composer） | 需要 `ctx.commands`，不需要 webServer、不进模型上下文 |
+| `tool_switch` 工具 | **任何入口，包括 QQ / headless** | 只需要模型能调工具 |
+
+```text
+/tools                       看分组和当前开关
+/tools off rea               关掉 rea 这一组（也认 终端与执行 / mcp:rea / mcp__rea__* / 精确工具名 / all）
+/tools on mcp__rea__         按前缀整片打开
+/tools all off | all on      全关 / 全开（动词在前后都认）
+/tools reset                 全部恢复
+```
+
+模型那边同理：用户说「把 XX 类工具关掉」时它会调用 `tool_switch`（`action: off|on|list|reset` + `target`），
+QQ 这种没有 UI、也没有 webServer 的部署就靠这条。`tool_switch` 自己**永远不会被关掉**——否则唯一的
+headless 入口就没了，所以即使 `all off` 它也留在 allow 集合里。
+
 ## 安装 / 卸载
 
 **完整步骤看 [INSTALL.md](INSTALL.md)**（三条验证命令、常见问题、跨平台路径都在那儿）。三步速览：
