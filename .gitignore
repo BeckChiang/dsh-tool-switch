@@ -1,0 +1,18 @@
+# 依赖 / 构建产物（这个插件是零依赖，用不到但先留着）
+node_modules/
+*.tgz
+
+# 运行期状态与日志
+*.log
+state.json
+
+# 测试截图 / 临时裁剪
+test/*.png
+test/*.jpg
+*.tmp
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
