@@ -168,35 +168,63 @@ pnpm add "file:C:\Users\<你>\Documents\Codex\dsh-tool-switch\dsh-tool-switch-0.
 
 ### C-3 从 npm 注册表装
 
-包已经为发布准备好（`publishConfig.access: public`、`files` 精简到 10 个文件 / 29 kB、
-`dsh.bundle` + `dsh.client` 声明齐全）。发布有两条路，选一条：
+#### 现状（2026-11）
 
-**① 本地发**（最快，需要一次 `npm login`）：
+`npmjs.com` 上账号 `suyuqing` 开了 **通行密钥（passkey）2FA**。对这种情况 npm 的规则是：
+CLI 发布必须带一次性密码 **或者** 带 bypass-2FA 的令牌——而 passkey 产生不了 6 位数字，
+所以「交互式 2FA 发布」这条在 CLI 上走不通（`npm publish` 只会打印一个被脱敏的
+`https://www.npmjs.com/auth/cli/***` 然后 `EOTP` 退出，即使给它真 TTY 也一样）。
+
+因此**首次发布**要用一次**短命凭据**，之后全部改用 OIDC，长期不留任何 token。
+
+#### ① 首次发布（只做一次，需要凭据）
+
+在 npmjs.com → Access Tokens 生成一个 **Granular Access Token**：
+
+- ✅ **Bypass two-factor authentication**
+- Permissions：**Read and write**
+- **Expiration：7 days 或更短**（做完就删）
+
+然后在本目录用它发一次（token 只进临时文件，别写进仓库、别进 CI）：
 
 ```powershell
-cd <PLUGIN_DIR>
-npm login                 # 浏览器里点一下，登录 suqing114
-npm publish               # publishConfig 里已写 public，不用再带 --access
+$tmp = "$env:TEMP\npmrc-publish"; "//registry.npmjs.org/:_authToken=`${NODE_AUTH_TOKEN}" | Set-Content $tmp -Encoding ascii
+$env:NODE_AUTH_TOKEN = "npm_xxx"        # 刚生成的短命 token
+npm publish --userconfig $tmp           # publishConfig 已是 public
+Remove-Item $tmp                        # 立刻删掉临时文件
+# 发布成功后，回 npmjs 把这个 token 吊销
 ```
 
-**② 用 GitHub Actions 发**（不用在本机登录）：
+#### ② 之后永久改成 OIDC（不用 token、不用 2FA）
 
-1. 在 npmjs.com → Access Tokens 建一个 **Automation** token；
-2. 仓库 Settings → Secrets and variables → Actions → 新增 `NPM_TOKEN`；
-3. 打 tag 推上去，工作流会自动发布：
+npmjs.com → 这个包 → **Settings → Trusted publishing**（GitHub Actions）：
 
-   ```powershell
-   git tag v0.2.1; git push --tags
-   ```
+| 字段 | 值 |
+|---|---|
+| Organization or user | `suqing114` |
+| Repository | `dsh-tool-switch` |
+| Workflow filename | `publish.yml` |
+| Allowed actions | `npm publish` |
 
-发布之后，谁都能：
+再把 **Publishing access** 改成 **“Require two-factor authentication and disallow tokens”**。
+这样连 bypass token 都不允许用，只剩仓库里的 `.github/workflows/publish.yml` 能发（它走 OIDC +
+provenance，`permissions: id-token: write`，全程没有任何密钥）。
+
+之后发版就是：
+
+```powershell
+# 改完 package.json 的 version
+git tag v0.2.1; git push --tags     # 工作流自动发布 + 生成 provenance
+```
+
+#### ③ 装
 
 ```powershell
 pnpm add dsh-tool-switch        # 或在插件页里直接装 dsh-tool-switch
 ```
 
 > 首次发布前可以用 `npm publish --dry-run` 看清单：本仓库当前是
-> `package size 29.1 kB / unpacked 83.2 kB / total files 10`。
+> `package size 29.4 kB / unpacked 84 kB / total files 10`。
 
 ### C-4 本地开发：link 进去
 

@@ -1,7 +1,17 @@
 name: publish
 
-# 打 tag 就发布到 npm：git tag v0.2.0 && git push --tags
-# 需要先在仓库设置里加一个 secret：NPM_TOKEN（npm 上的 Automation/Granular token，带 publish 权限）
+# 打 tag 就发布：git tag v0.2.1 && git push --tags
+#
+# 走 npm 的 **Trusted Publishing (OIDC)**：不需要任何长期 token，也就不会有
+# 「bypass-2FA 的 token 明年作废」这回事。前提是在 npmjs.com 的包设置里
+# 绑定过 Trusted publisher：
+#   Organization or user: suqing114
+#   Repository:           dsh-tool-switch
+#   Workflow filename:    publish.yml
+#   Allowed actions:      npm publish
+# 并把 Publishing access 设为 "Require two-factor authentication and disallow tokens"。
+#
+# 首次发布需要先让包在 npm 上存在（见 INSTALL.md 的 C-3），之后本工作流就够用了。
 on:
   push:
     tags:
@@ -13,6 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write # OIDC：npm 用这个换取一次性的发布权限
     steps:
       - uses: actions/checkout@v4
 
@@ -21,7 +32,10 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
-      # 包里没有依赖，这一步只是为了跑通 npm 的常规流程
+      # Trusted publishing 需要 npm >= 11.5
+      - name: Use a recent npm
+        run: npm install -g npm@latest
+
       - name: Check the package parses
         run: |
           node --check index.js
@@ -29,6 +43,5 @@ jobs:
           node -e "const j=require('./package.json'); if(!j.dsh.bundle||!j.dsh.client) throw new Error('missing dsh declarations'); console.log('publishing', j.name+'@'+j.version)"
 
       - name: Publish
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public
+        # 不设 NODE_AUTH_TOKEN：token 一律不用。
