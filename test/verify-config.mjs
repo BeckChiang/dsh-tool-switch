@@ -86,7 +86,11 @@ for (const locale of ['zh', 'en']) {
 
 check('icon.svg 存在', fs.existsSync(path.join(pluginDir, 'icon.svg')))
 check('LICENSE 存在', fs.existsSync(path.join(pluginDir, 'LICENSE')))
-check('INSTALL.md 存在', fs.existsSync(path.join(pluginDir, 'INSTALL.md')))
+check('README.md 存在', fs.existsSync(path.join(pluginDir, 'README.md')))
+check('files[] 与磁盘一致（不该有 INSTALL.md 这类已删文档）', (manifest.files ?? []).every((entry) => {
+  const target = path.join(pluginDir, entry.replace(/\/$/, ''))
+  return fs.existsSync(target)
+}))
 
 console.log('')
 console.log(failures === 0 ? '全部检查通过' : `${failures} 项检查未通过`)

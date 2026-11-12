@@ -11,7 +11,7 @@ name: publish
 #   Allowed actions:      npm publish
 # 并把 Publishing access 设为 "Require two-factor authentication and disallow tokens"。
 #
-# 首次发布需要先让包在 npm 上存在（见 INSTALL.md 的 C-3），之后本工作流就够用了。
+# 首次发布需要先让包在 npm 上存在（见 README 的「发版」一节），之后本工作流就够用了。
 on:
   push:
     tags:
