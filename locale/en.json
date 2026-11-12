@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Tool switch",
+    "description": "Pick which tools the model may use in the current session. Hidden tools leave the prompt and cannot be called."
+  }
+}

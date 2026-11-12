@@ -1,0 +1,9 @@
+# dsh-tool-switch 作为组合包挂载时，由这一层把 Host 半侧的入口接进插件树。
+#
+# name 用包名（不是文件路径）：组合包安装后，profile 的 node_modules 里能解析到这个包。
+# 想固定状态目录或改路由，在 config 里追加即可，例如：
+#   config:
+#     stateDir: C:\Users\<你>\.dsh-tool-switch
+- insert:
+    - id: dsh-tool-switch
+      name: 'dsh-tool-switch'

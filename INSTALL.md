@@ -1,0 +1,187 @@
+# 安装指南
+
+> 适用：**DSH Desktop 0.13.x**（内置 DeepSeek Harness `0.2.2-alpha.x`）与同版本的 `dsh` CLI。
+> 插件本身**零依赖、无需构建**：`index.js` 是 Host 半侧（Node ESM），`lib/client.js` 是手写的
+> 客户端 bundle（`window.__ModuleLoader__.load({ id, factory })` 格式，与官方插件产物同构）。
+
+安装有两条路，选一条就好：
+
+| 方式 | 适合谁 | 特点 |
+|---|---|---|
+| **A. 作为「组合包」安装**（推荐） | 一般用户 | 插件页点几下就装上；升级 DSH 后仍在；可随时停用/卸载 |
+| **B. 在补丁层里手工挂载** | 想直接对着源码改、或不想让包管理器动 profile | 立刻热生效，改完就见效；但 profile 重装/清理时可能丢 |
+
+> 两条路**不要同时用**——同一份插件被两个 Loader 入口解析到，客户端会报
+> `package dsh-tool-switch resolves from multiple active Loader sources` 并拒绝组图。
+
+---
+
+## 0. 先认清三个位置
+
+| 名字 | 是什么 | 怎么找 |
+|---|---|---|
+| **插件目录** `<PLUGIN_DIR>` | 这个仓库放在哪 | 你自己放的地方，例如 `C:\Users\<你>\Documents\Codex\dsh-tool-switch` |
+| **Profile 目录** `<PROFILE_DIR>` | 当前正在跑的那套插件组合 | 见下表；有 `cordis.patch.yml`、`package.json`、`node_modules` |
+| **Harness 数据目录** `<HARNESS_DIR>` | 会话、日志、`cordis.patch.yml` 所在 | 见下表；日志在 `<HARNESS_DIR>\logs\harness.log` |
+
+| 系统 | `<HARNESS_DIR>` | `<PROFILE_DIR>`（默认 profile 名 `web`） |
+|---|---|---|
+| Windows | `%APPDATA%\dsh-desktop\harness` | `<HARNESS_DIR>\profiles\web` |
+| macOS | `~/Library/Application Support/dsh-desktop/harness` | `<HARNESS_DIR>/profiles/web` |
+| Linux | `~/.config/dsh-desktop/harness` | `<HARNESS_DIR>/profiles/web` |
+
+**怎么确认自己找对了**：`<PROFILE_DIR>\package.json` 里有 `"dsh": { "profile": { "bundles": [...] } }`，
+`<PROFILE_DIR>\cordis.patch.yml` 里有你装过的其它插件（`dsh-ops`、`dsh-market` 之类）。
+
+想在命令行里确认（Desktop 拉起 Harness 时会注入这些变量，普通终端里没有）：
+
+```powershell
+# PowerShell（Windows 预设）
+$env:DSH_PROFILE_DIR      # -> <PROFILE_DIR>
+$env:DSH_PROFILE          # -> web
+```
+
+```bash
+# bash（macOS / Linux）
+echo "$DSH_PROFILE_DIR" "$DSH_PROFILE"
+# 或者：dsh --profile web --dump-config | head -40
+```
+
+---
+
+## 方式 A：作为组合包安装（推荐）
+
+这个仓库根目录带着 `package.json` 的 `dsh.bundle.patch` 与 `cordis.patch.yml`，
+所以它本身就是一个可安装的**组合包**：装上去之后，它自带的补丁层会把 Host 入口接进插件树，
+不需要你手改任何 profile 配置。
+
+### A-1 用界面装（最省事）
+
+1. 左侧栏点 **插件**（不是「设置 → 插件」，那里是只读列表）。
+2. 点 **安装**，把 **插件目录的绝对路径** 贴进去，例如
+   `C:\Users\<你>\Documents\Codex\dsh-tool-switch`。
+   也可以粘这个仓库的地址：`https://github.com/suqing114/dsh-tool-switch`。
+3. 确认安装 → 等日志跑完（本插件没有依赖，通常一两秒）。
+4. 安装完它会自动被选中/启用。**刷新页面（Ctrl+R）**，输入框下方出现 `⚙ 工具` 胶囊即成功。
+
+> 装的是本地目录时，profile 记录的是 `link:<绝对路径>`：以后你在这个仓库里改代码，
+> 效果直接跟着变（Host 侧改完仍需重启，客户端 bundle 会热替换）。
+
+### A-2 用 agent / CLI 装
+
+在 DSH 里让 agent 装（Full access 下不会弹审批）：
+
+```
+用 plugin_manager 的 install_bundle，target 指向 C:\Users\<你>\Documents\Codex\dsh-tool-switch
+```
+
+或命令行：
+
+```powershell
+dsh plugin install "C:\Users\<你>\Documents\Codex\dsh-tool-switch"
+dsh plugin list                     # 确认 dsh-tool-switch 在列表里且已启用
+```
+
+### A-3 卸载
+
+- 界面：**插件** 页找到 `dsh-tool-switch` → 取消选择 / 移除。
+- CLI：`dsh plugin remove dsh-tool-switch`。
+- 移除后刷新页面，按钮消失；`<HARNESS_DIR>\dsh-tool-switch\state.json`（或
+  `~/.dsh-tool-switch/state.json`）可以留着，也可以删掉。
+
+---
+
+## 方式 B：在补丁层里手工挂载
+
+适合「我就在改这份源码」的场景。两种写法二选一。
+
+### B-1 直接指向目录（file URL，本机现在用的就是这种）
+
+编辑 `<HARNESS_DIR>\cordis.patch.yml`，在**末尾**追加（注意 YAML 顶层是数组，前面的条目不要动）：
+
+```yaml
+- insert:
+    - id: dsh-tool-switch
+      name: "file:///C:/Users/<你>/Documents/Codex/dsh-tool-switch/index.js?v=1"
+      config:
+        stateDir: C:\Users\<你>\AppData\Roaming\dsh-desktop\harness\dsh-tool-switch
+```
+
+- Windows 路径写成 `file:///C:/...`（正斜杠，三个斜杠）；macOS/Linux 例如
+  `"file:///Users/<你>/code/dsh-tool-switch/index.js?v=1"`。
+- `?v=1` 是 **ESM 模块缓存版本后缀**：Host 侧代码改过之后，把这个数字 +1（或重启 DSH）
+  才会加载新代码；客户端 `lib/client.js` 不用管，它按 mtime 自动热替换。
+- `config` 可以整段省略（默认状态目录是 `~/.dsh-tool-switch`）。
+- **热生效**：保存文件后 Loader 会自己重挂，不用重启；页面刷新一次即可看到按钮。
+- **卸载**：删掉 `- insert:` 这整块（连同它下面的两行），保存即可热卸载；
+  插件卸载时会自动撤销它装过的所有工具遮罩。
+
+### B-2 拷进 profile 的 node_modules，用包名挂
+
+```powershell
+# Windows：把仓库复制进 profile 的 node_modules（不要用符号链接，pnpm 清理时容易断）
+Copy-Item -Recurse "C:\Users\<你>\Documents\Codex\dsh-tool-switch" `
+  "$env:APPDATA\dsh-desktop\harness\profiles\web\node_modules\dsh-tool-switch"
+```
+
+```yaml
+- insert:
+    - id: dsh-tool-switch
+      name: "dsh-tool-switch"
+```
+
+> 注意：这种方式下次 `pnpm install` / 插件页装别的包时，可能把这份拷贝清掉。
+> 要长期用请走**方式 A**。
+
+---
+
+## 装完怎么验（三条，从底层往上）
+
+```powershell
+# 1) Host 路由活着：200 + JSON；不带 session 应 400；随便一个路径应 404
+curl.exe "http://127.0.0.1:43129/tool-switch/state?session=test"
+curl.exe "http://127.0.0.1:43129/tool-switch/state"
+```
+
+```powershell
+# 2) 客户端启动图里有这一行（bundle 也能取到）
+cd <PLUGIN_DIR>
+node test\probe-client-graph.mjs
+# 期望：entries 里出现 {"id":"dsh-tool-switch","url":"plugins/??dsh-tool-switch/client.js&rev=…"}
+#      并且 bundle … 含我的代码: true
+```
+
+3. 页面里：输入框卡片**正下方那一行**、靠右、紧挨 `56%` 上下文档位左边 → `⚙ 工具` 胶囊。
+   点开是分组面板（默认全部收起），每类后面有 `全关 / 全开`。
+
+端口不是 43129 的话（`dsh web --port` 或用别的方式起的），把地址换成实际端口；
+`test\paths.mjs` 里所有路径/端口都能用环境变量覆盖：
+
+```powershell
+$env:DSH_URL = "http://127.0.0.1:38999"
+$env:DSH_HARNESS = "D:\elsewhere\harness"
+node test\probe-route.mjs
+```
+
+---
+
+## 常见问题
+
+| 现象 | 原因 / 处理 |
+|---|---|
+| `curl …/tool-switch/state` 返回 **404** | 补丁没生效：确认 `- insert:` 块在 `cordis.patch.yml` 末尾、`id` 没拼错、文件保存了；看 `<HARNESS_DIR>\logs\harness.log` 里有没有 `patch: entry … not found` 之类的行；方式 B 下重新触发一次热加载（随便改一下该文件）即可 |
+| 路由 200，但页面**没有按钮** | 客户端半侧没加载：先 Ctrl+R 硬刷；再跑第 2 条验证。若启动图里没有这一行，说明 `package.json` 的 `dsh.client` 没被读到——方式 B-1 改 `package.json` 后需要重启 DSH |
+| 日志里 `resolves from multiple active Loader sources` | 同一份插件被挂了两遍（比如方式 A 和 B 同时开）。留一条，删掉另一条 |
+| 改了 `index.js`，行为没变 | Host 侧代码只在条目重启时重新导入：方式 B-1 把 `?v=` 数字 +1，或重启 DSH |
+| 改了 `lib/client.js`，样式没变 | 客户端 bundle 按 mtime 热替换，通常几秒内生效；没生效就 Ctrl+R |
+| 面板里有些工具标 `· 会话固定`、勾选框是灰的 | 那是 agent 作用域内注册的工具，框架规定 `tools.restrict` 管不到它们（例如某些预设注册的 `ops_discover_tools`） |
+| 关掉工具后模型“看不见”了，但我想验证真的挡住了 | 关掉某工具后让它调用一次，会得到 `UNKNOWN_TOOL`；`test\probe-live-restrict.mjs` 是同一路径的自动版（不会真的隐藏任何工具） |
+| 想一次性恢复默认 | 删掉状态文件（`<HARNESS_DIR>\dsh-tool-switch\state.json` 或 `~/.dsh-tool-switch/state.json`），或在面板里点 `全开` |
+
+## 安全边界
+
+- 路由只监听 loopback（Harness 的 `webServer` 本来就这么绑），同源访问；
+  `/api` 那套鉴权不覆盖它，因此**本机**任何进程都能读写这个状态——它只影响“本会话模型能用哪些工具”，
+  不涉及凭证、文件内容或执行权限。
+- 插件不联网、不读环境变量里的密钥；唯一的磁盘写入是它自己的 `state.json`。
+- 状态按 sessionId 存，换会话互不影响；插件被卸载/停用时所有遮罩会被撤销，工具集合回到全开。

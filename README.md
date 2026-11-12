@@ -65,29 +65,32 @@ agent.ctx.tools.restrict({ allow: [...这个会话允许的工具名] })
 
 ## 安装 / 卸载
 
-把仓库放到任意目录（下称 `<PLUGIN_DIR>`，例如 `C:\Users\<你>\Documents\Codex\dsh-tool-switch`）。
+**完整步骤看 [INSTALL.md](INSTALL.md)**（三条验证命令、常见问题、跨平台路径都在那儿）。三步速览：
 
-Host 入口写在 harness 的补丁层 `<HARNESS_DIR>\cordis.patch.yml` 里，
-Windows 桌面版一般是 `%APPDATA%\dsh-desktop\harness\cordis.patch.yml`：
+1. 把仓库放到任意目录，例如 `C:\Users\<你>\Documents\Codex\dsh-tool-switch`。
+2. 二选一挂上去：
+   - **A（推荐）当作组合包安装**：DSH 左侧栏 **插件 → 安装**，填这个目录的绝对路径
+     （或本仓库地址），确认后再刷新页面。仓库自带的 `cordis.patch.yml` 会负责接好 Host 入口。
+   - **B 手工挂进补丁层**：在 `<HARNESS_DIR>\cordis.patch.yml` 末尾追加
+     （Windows 下 `<HARNESS_DIR>` = `%APPDATA%\dsh-desktop\harness`）：
 
-```yaml
-- insert:
-    - id: dsh-tool-switch
-      name: "file:///C:/Users/<你>/Documents/Codex/dsh-tool-switch/index.js?v=1"
-      config:
-        stateDir: C:\Users\<你>\AppData\Roaming\dsh-desktop\harness\dsh-tool-switch
-```
+     ```yaml
+     - insert:
+         - id: dsh-tool-switch
+           name: "file:///C:/Users/<你>/Documents/Codex/dsh-tool-switch/index.js?v=1"
+           config:
+             stateDir: C:\Users\<你>\AppData\Roaming\dsh-desktop\harness\dsh-tool-switch
+     ```
 
-- 路径要么写成 `file:///C:/...` 这样的 file URL，要么直接写成包名（先把仓库拷进
-  `<HARNESS_DIR>\profiles\web\node_modules\dsh-tool-switch`，再用 `name: "dsh-tool-switch"`）。
-- `?v=1` 只是 ESM 模块缓存的版本后缀：热重载已经导入过的插件时，改一下它才会重新加载新代码。
-- **卸载**：删掉上面那个 `- insert:` 块（loader 会热卸载；已装的遮罩会被撤销），或者停用插件后重启。
-- 改完配置后当前页面刷新一次（Ctrl+R）就能看到按钮；之后再改代码，客户端 bundle 会按 mtime 自动热替换，
-  Host 侧代码则需要重启（或像上面那样换个 `?v=` 再让条目重启）。
+     `?v=1` 只是 ESM 模块缓存的版本后缀：Host 侧代码改过之后把它 +1（或重启 DSH）才会重新加载。
+     **卸载**：删掉这整块即可（loader 会热卸载，插件装过的遮罩会一起撤销）。
+3. 刷新页面（Ctrl+R），输入框下方出现 `⚙ 工具` 胶囊。
 
-状态文件：`<HARNESS_DIR>\dsh-tool-switch\state.json`
-（`{ version, sessions: { "<sessionId>": { disabled: [...] } } }`）。
-删掉它等于把所有会话恢复成「全部启用」。
+> A、B **不要同时用**：同一份插件被两个 Loader 入口解析到，客户端会报
+> `resolves from multiple active Loader sources` 并拒绝组图。
+
+状态文件：`<HARNESS_DIR>\dsh-tool-switch\state.json`（走 A 且没配 `stateDir` 时是 `~/.dsh-tool-switch/state.json`），
+格式 `{ version, sessions: { "<sessionId>": { disabled: [...] } } }`；删掉它等于把所有会话恢复成「全部启用」。
 
 ### 测试脚本的路径
 
@@ -125,12 +128,14 @@ Windows 桌面版一般是 `%APPDATA%\dsh-desktop\harness\cordis.patch.yml`：
 ## 自测
 
 ```bat
-node test\test-host.mjs      :: Host：分组/持久化/restrict 重装/HTTP 路由/卸载清理
-node test\test-client.mjs    :: 客户端：bundle 协议、slot 注册形状、真实 React 渲染
-node test\verify-config.mjs  :: 解析 cordis.patch.yml，确认条目结构正确
-node test\probe-route.mjs    :: 打真实实例的 127.0.0.1:43129，看状态码与返回
-node test\probe-client-graph.mjs :: 看 /plugins/events 的启动图里有没有这一行、bundle 能否取到
+node test\test-host.mjs             :: Host：分组/持久化/restrict 重装/HTTP 路由/卸载清理（10 项）
+node test\test-client.mjs           :: 客户端：bundle 协议、slot 注册形状、默认收起、整组一键、真实 React 渲染（6 项）
+node test\verify-config.mjs         :: 本机补丁层 + 本仓库的组合包声明（bundle patch / locale / icon）
+node test\verify-client-inject.mjs  :: dsh.client.inject 点名的包确实是启动图里的行
+node test\probe-route.mjs           :: 打真实实例，看 400 / 200 / 404
+node test\probe-client-graph.mjs    :: 启动图里有没有这一行、bundle 能否取到
+node test\probe-live.mjs            :: $env:SESSION=… 后看某个会话的目录/agent 视图
 ```
 
-`test\test-host.mjs` 用最小 ctx 桩跑通主路径；`test\test-client.mjs` 借 app 自带的 React 做静态渲染，
-覆盖分组/计数/锁定标注/折叠/搜索。
+`test\test-host.mjs` 用最小 ctx 桩跑通主路径；`test\test-client.mjs` 借 app 自带的 React 做静态渲染。
+路径与端口都由 [test/paths.mjs](test/paths.mjs) 解析，可用 `DSH_APP` / `DSH_HARNESS` / `DSH_URL` / `SESSION` 覆盖。
