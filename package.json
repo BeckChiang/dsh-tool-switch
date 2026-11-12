@@ -1,6 +1,6 @@
 {
   "name": "dsh-tool-switch",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Per-session tool visibility switch for DeepSeek Harness: a button under the composer, grouped tool picker, applied to live sessions.",
   "type": "module",
   "main": "index.js",

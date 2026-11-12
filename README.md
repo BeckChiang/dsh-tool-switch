@@ -96,9 +96,12 @@ headless 入口就没了，所以即使 `all off` 它也留在 allow 集合里�
    - **C 包管理器直装**（就是「别的插件怎么装我就怎么装」）：
 
      ```powershell
-     cd <PROFILE_DIR>
-     pnpm add github:suqing114/dsh-tool-switch#v0.2.0   # 或 file:<本地 tgz> / link:<本地目录>
-     # 再把 "dsh-tool-switch" 加进本文件 dsh.profile.bundles（或用包名写进 cordis.patch.yml）
+     pnpm add dsh-tool-switch                            # 已在 npm 上（latest 0.2.1）
+     # 或从 GitHub / 本地 tgz / 本地目录：
+     pnpm add github:suqing114/dsh-tool-switch#v0.2.1
+     pnpm add "file:<本地 tgz>"
+     pnpm add "link:<本地仓库目录>"
+     # 再把 "dsh-tool-switch" 加进 <PROFILE_DIR>\package.json 的 dsh.profile.bundles
      ```
 
      `pnpm add` 只负责放包，profile 还得知道这个组合包要参与组合——两步都要做。

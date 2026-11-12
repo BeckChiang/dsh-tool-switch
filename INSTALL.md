@@ -170,34 +170,26 @@ pnpm add "file:C:\Users\<你>\Documents\Codex\dsh-tool-switch\dsh-tool-switch-0.
 
 #### 现状（2026-11）
 
-`npmjs.com` 上账号 `suyuqing` 开了 **通行密钥（passkey）2FA**。对这种情况 npm 的规则是：
-CLI 发布必须带一次性密码 **或者** 带 bypass-2FA 的令牌——而 passkey 产生不了 6 位数字，
-所以「交互式 2FA 发布」这条在 CLI 上走不通（`npm publish` 只会打印一个被脱敏的
-`https://www.npmjs.com/auth/cli/***` 然后 `EOTP` 退出，即使给它真 TTY 也一样）。
-
-因此**首次发布**要用一次**短命凭据**，之后全部改用 OIDC，长期不留任何 token。
-
-#### ① 首次发布（只做一次，需要凭据）
-
-在 npmjs.com → Access Tokens 生成一个 **Granular Access Token**：
-
-- ✅ **Bypass two-factor authentication**
-- Permissions：**Read and write**
-- **Expiration：7 days 或更短**（做完就删）
-
-然后在本目录用它发一次（token 只进临时文件，别写进仓库、别进 CI）：
+**已发布**：[`dsh-tool-switch`](https://www.npmjs.com/package/dsh-tool-switch) 在 npm 上，`latest` = **0.2.1**。
 
 ```powershell
-$tmp = "$env:TEMP\npmrc-publish"; "//registry.npmjs.org/:_authToken=`${NODE_AUTH_TOKEN}" | Set-Content $tmp -Encoding ascii
-$env:NODE_AUTH_TOKEN = "npm_xxx"        # 刚生成的短命 token
-npm publish --userconfig $tmp           # publishConfig 已是 public
-Remove-Item $tmp                        # 立刻删掉临时文件
-# 发布成功后，回 npmjs 把这个 token 吊销
+pnpm add dsh-tool-switch        # 或在插件页里直接装
 ```
 
-#### ② 之后永久改成 OIDC（不用 token、不用 2FA）
+> 发布时踩到的两件事，记在这儿省得下次重复：
+> ① 账号开了**通行密钥 2FA**，CLI 发布产生不了 OTP，`npm publish` 只会给个被脱敏的
+> `https://www.npmjs.com/auth/cli/***` 然后 `EOTP` 退出——即使给它真 TTY。
+> ② 用一次性 bypass-2FA 令牌 `npm publish` 时，npm 会先把版本放进「staged」队列并回一句
+> `Your package is being processed…`，**过一两分钟才真的出现在注册表**；同一版本号重发会得到
+> `E409 Cannot publish over previously staged version`。所以别急着重试，等一等再 `npm view`。
+> 另外这种令牌**做不了 `npm unpublish`**（`403 ... bypass two-factor authentication may not perform this action`）。
 
-npmjs.com → 这个包 → **Settings → Trusted publishing**（GitHub Actions）：
+包里还残留两个历史版本（`0.0.0-stage` 占位、`0.2.0` 早期尝试），删不掉是因为上面的 403；
+配好下面的 Trusted Publishing 后，可以在 npmjs 网页上删，或走 CI 的 OIDC 发一条清理命令。
+
+#### 发布新版本：走 OIDC，不用任何 token
+
+npmjs.com → `dsh-tool-switch` → **Settings → Trusted publishing**（GitHub Actions）：
 
 | 字段 | 值 |
 |---|---|
@@ -207,24 +199,27 @@ npmjs.com → 这个包 → **Settings → Trusted publishing**（GitHub Actions
 | Allowed actions | `npm publish` |
 
 再把 **Publishing access** 改成 **“Require two-factor authentication and disallow tokens”**。
-这样连 bypass token 都不允许用，只剩仓库里的 `.github/workflows/publish.yml` 能发（它走 OIDC +
-provenance，`permissions: id-token: write`，全程没有任何密钥）。
+之后连 bypass token 都不允许，只有仓库里 `.github/workflows/publish.yml` 能发它走 OIDC +
+provenance（`permissions: id-token: write`，全程没有密钥）。
 
-之后发版就是：
-
-```powershell
-# 改完 package.json 的 version
-git tag v0.2.1; git push --tags     # 工作流自动发布 + 生成 provenance
-```
-
-#### ③ 装
+发版流程：
 
 ```powershell
-pnpm add dsh-tool-switch        # 或在插件页里直接装 dsh-tool-switch
+# 改 package.json 的 version
+git tag v0.2.2; git push --tags     # 工作流自动发布 + 生成 provenance
 ```
 
-> 首次发布前可以用 `npm publish --dry-run` 看清单：本仓库当前是
-> `package size 29.4 kB / unpacked 84 kB / total files 10`。
+#### 历史记录：首次发布是怎么过的
+
+包必须先在注册表里存在，才能在网页上配 trusted publisher，所以首次那一次用了短期凭据
+（Granular token + bypass 2FA，Expiration 7 天，发出后立刻吊销）：
+
+```powershell
+$tmp = "$env:TEMP\npmrc-publish"; "//registry.npmjs.org/:_authToken=`${NODE_AUTH_TOKEN}" | Set-Content $tmp -Encoding ascii
+$env:NODE_AUTH_TOKEN = "npm_xxx"        # 短命 token，别写进仓库、别进 CI
+npm publish --userconfig $tmp
+Remove-Item $tmp                        # 立刻删
+```
 
 ### C-4 本地开发：link 进去
 
