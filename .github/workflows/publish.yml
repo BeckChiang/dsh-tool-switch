@@ -1,0 +1,34 @@
+name: publish
+
+# 打 tag 就发布到 npm：git tag v0.2.0 && git push --tags
+# 需要先在仓库设置里加一个 secret：NPM_TOKEN（npm 上的 Automation/Granular token，带 publish 权限）
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # 包里没有依赖，这一步只是为了跑通 npm 的常规流程
+      - name: Check the package parses
+        run: |
+          node --check index.js
+          node --check lib/client.js
+          node -e "const j=require('./package.json'); if(!j.dsh.bundle||!j.dsh.client) throw new Error('missing dsh declarations'); console.log('publishing', j.name+'@'+j.version)"
+
+      - name: Publish
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

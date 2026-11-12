@@ -168,15 +168,35 @@ pnpm add "file:C:\Users\<你>\Documents\Codex\dsh-tool-switch\dsh-tool-switch-0.
 
 ### C-3 从 npm 注册表装
 
-需要先发布（仓库现在是 `private: true`，本机 npm 也没登录）：
+包已经为发布准备好（`publishConfig.access: public`、`files` 精简到 10 个文件 / 29 kB、
+`dsh.bundle` + `dsh.client` 声明齐全）。发布有两条路，选一条：
+
+**① 本地发**（最快，需要一次 `npm login`）：
 
 ```powershell
-# 在 <PLUGIN_DIR>：把 package.json 里的 "private": true 去掉，然后
-npm login
-npm publish --access public
-# 之后任何地方
-pnpm add dsh-tool-switch
+cd <PLUGIN_DIR>
+npm login                 # 浏览器里点一下，登录 suqing114
+npm publish               # publishConfig 里已写 public，不用再带 --access
 ```
+
+**② 用 GitHub Actions 发**（不用在本机登录）：
+
+1. 在 npmjs.com → Access Tokens 建一个 **Automation** token；
+2. 仓库 Settings → Secrets and variables → Actions → 新增 `NPM_TOKEN`；
+3. 打 tag 推上去，工作流会自动发布：
+
+   ```powershell
+   git tag v0.2.1; git push --tags
+   ```
+
+发布之后，谁都能：
+
+```powershell
+pnpm add dsh-tool-switch        # 或在插件页里直接装 dsh-tool-switch
+```
+
+> 首次发布前可以用 `npm publish --dry-run` 看清单：本仓库当前是
+> `package size 29.1 kB / unpacked 83.2 kB / total files 10`。
 
 ### C-4 本地开发：link 进去
 

@@ -1,9 +1,8 @@
 {
   "name": "dsh-tool-switch",
   "version": "0.2.0",
-  "private": true,
-  "type": "module",
   "description": "Per-session tool visibility switch for DeepSeek Harness: a button under the composer, grouped tool picker, applied to live sessions.",
+  "type": "module",
   "main": "index.js",
   "exports": {
     ".": "./index.js",
@@ -22,6 +21,27 @@
     "INSTALL.md",
     "LICENSE"
   ],
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "tools",
+    "plugin"
+  ],
+  "author": "suqing114 (https://github.com/suqing114)",
+  "license": "MIT",
+  "homepage": "https://github.com/suqing114/dsh-tool-switch#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/suqing114/dsh-tool-switch.git"
+  },
+  "bugs": {
+    "url": "https://github.com/suqing114/dsh-tool-switch/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
