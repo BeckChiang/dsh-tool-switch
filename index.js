@@ -372,19 +372,37 @@ export function apply(ctx, config) {
     const descriptions = new Map()
     const signatures = new Map()
     let globalNames = []
+    // 全局视图给的是「没被本会话遮罩过」的完整清单（关掉的工具也要能列出来），
+    // 但 agent 作用域里注册的工具（preset 带来的 ops_* 之类）只在带 scope 的视图里出现，
+    // 所以两边各读一次再合并：描述/签名取先出现的那份，名字取并集。
+    const remember = (definition) => {
+      if (typeof definition?.name !== 'string') return
+      const known = descriptions.get(definition.name)
+      const description = typeof definition.description === 'string' ? definition.description : ''
+      if (known === undefined || (known.length === 0 && description.length > 0)) {
+        descriptions.set(definition.name, description)
+      }
+      const signature = signatureOf(definition)
+      if (signature.length > 0 && (signatures.get(definition.name) ?? '').length === 0) {
+        signatures.set(definition.name, signature)
+      }
+    }
     try {
       const definitions = ctx.tools.definitions()
       if (Array.isArray(definitions)) {
         globalNames = definitions.map((definition) => definition?.name).filter((entry) => typeof entry === 'string')
-        for (const definition of definitions) {
-          if (typeof definition?.name === 'string') {
-            descriptions.set(definition.name, definition.description ?? '')
-            signatures.set(definition.name, signatureOf(definition))
-          }
-        }
+        for (const definition of definitions) remember(definition)
       }
     } catch (error) {
       warn('reading the tool catalog failed', error)
+    }
+    if (agent !== undefined) {
+      try {
+        const scoped = ctx.tools.definitions(agent)
+        if (Array.isArray(scoped)) for (const definition of scoped) remember(definition)
+      } catch (error) {
+        warn('reading the scoped tool catalog failed', error)
+      }
     }
 
     const knownNames = view?.knownNames instanceof Set ? [...view.knownNames] : globalNames
