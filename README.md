@@ -170,5 +170,7 @@ node test\probe-client-graph.mjs
 - 自测脚本在 `test/`：`node test\test-host.mjs`（Host 逻辑，最小 ctx 桩）、`node test\test-client.mjs`
   （借 app 自带 React 做静态渲染）、`node test\test-usage.mjs`（调用次数统计：合成多帧 zstd 日志 + 缓存增量 +
   徽章/排序/展开说明，复用同一套 React，`DSH_APP` 指向任意装了 react 18 的 package.json 即可）、
+  `node test/test-panel.mjs`（把面板真挂进 jsdom 后点一下按钮，断言面板和按钮都还在——纯函数测试抓不到
+  「面板里少一个变量就让整块消失」这类崩）、
   `node test\probe-*.mjs`（打真实实例）。路径与端口由
   [test/paths.mjs](test/paths.mjs) 解析，可用 `DSH_APP` / `DSH_HARNESS` / `DSH_URL` / `SESSION` 覆盖。
