@@ -1,5 +1,10 @@
 # dsh-tool-switch
 
+> **这是 fork**：`BeckChiang/dsh-tool-switch`，基于 [suqing114/dsh-tool-switch](https://github.com/suqing114/dsh-tool-switch)（MIT，0.2.2）。
+> 上游 = 会话级工具开关本体；本 fork 在原功能之上加了**工具调用次数统计**（本会话 / 近 30 天 / 全局，
+> 面板可切换口径、可按频率排序）与**参数签名 / 完整说明**（详见下文「调用次数」）。上游升级时以
+> `upstream` remote 合并，冲突优先保留上游行为。
+
 给 DeepSeek Harness 用的**会话级工具开关**：点开输入框下方的「工具」按钮，按分组勾选这个会话里模型
 **可以**用哪些工具。关掉的工具会从系统提示词的工具清单里消失，模型也调不到（调用得到 `UNKNOWN_TOOL`），
 改完下一条消息生效，随时可以再改。
@@ -29,6 +34,28 @@
   认不出来的按名字前缀兜底。
 - **按会话记忆**：选择存在 `state.json`（按 sessionId 记「关掉了哪些」），重启后仍生效；对话中途随时改。
 - 面板 `Esc` 或点面板外关闭；`Esc` 被面板在捕获阶段吃掉，**不会**顺手把正在跑的回合停掉。
+
+## 调用次数
+
+面板打开时同时按一次统计：扫描本机会话日志（`~/.dsh/sessions/**/session.v4.jsonl.zstd`，多帧 zstd），
+数出每个工具被 `tool/call` 调用了多少次，给出三个口径，工具栏中间的三段开关随时切换：
+
+| 口径 | 含义 |
+|---|---|
+| 本会话 | 只数当前会话的那份日志，关掉哪个工具最直接影响它 |
+| 30 天 | 最近 30 天所有会话（滚动窗口，按天分桶） |
+| 全局 | 本机有日志以来的全部调用 |
+
+- 左边显示次数徽章，**一次都没调用过**的工具标虚线「未用」——这是排除干扰项最直接的依据。
+- 「按频率 ↓」把调用多的组和工具排到前面（默认仍按固定分组顺序）。
+- 分组头 `·N` 是该组在当前口径下的总次数；面板标题右侧是总调用数与未用个数。
+- 统计只进界面，**不进提示词**：不改工具清单、不影响前缀缓存，也不会让模型看到「你自己用得少」。
+- 解析结果按文件 `size + mtime` 缓存在 `~/.dsh-tool-switch/usage-cache.json`，只有增长的日志会重解析
+  （缓存命中时打开面板约几十毫秒；首次冷扫约 4 秒，几十万条调用）。
+- 统计失败只是面板底部一行提示，不影响开关本身。
+
+工具行还带两样辅助信息：名字后面的**参数签名**（`(command, timeout?)`，鼠标悬停即可看），
+以及可点击展开的**完整说明**（默认只显示首行）。
 
 ## 三个入口，同一份状态
 
@@ -141,5 +168,7 @@ node test\probe-client-graph.mjs
 - `index.js` 是 Host 半侧（Cordis 插件，`inject: ['tools', 'agents']`），`lib/client.js` 是手写客户端 bundle，
   `cordis.patch.yml` 是组合包自带的补丁层（用包名挂载 Host 入口）。
 - 自测脚本在 `test/`：`node test\test-host.mjs`（Host 逻辑，最小 ctx 桩）、`node test\test-client.mjs`
-  （借 app 自带 React 做静态渲染）、`node test\probe-*.mjs`（打真实实例）。路径与端口由
+  （借 app 自带 React 做静态渲染）、`node test\test-usage.mjs`（调用次数统计：合成多帧 zstd 日志 + 缓存增量 +
+  徽章/排序/展开说明，复用同一套 React，`DSH_APP` 指向任意装了 react 18 的 package.json 即可）、
+  `node test\probe-*.mjs`（打真实实例）。路径与端口由
   [test/paths.mjs](test/paths.mjs) 解析，可用 `DSH_APP` / `DSH_HARNESS` / `DSH_URL` / `SESSION` 覆盖。

@@ -20,6 +20,8 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+import { UsageIndex } from './lib/usage.js'
+
 export const name = 'dsh-tool-switch'
 
 /** Cordis：这两个服务不存在时插件不激活。 */
@@ -27,6 +29,9 @@ export const inject = ['tools', 'agents']
 
 /** 浏览器半侧使用的路由（同源，精确匹配）。 */
 export const ROUTE = '/tool-switch/state'
+
+/** 调用次数统计的独立路由：冷启动要解几百 MB 日志，不能拖慢工具列表。 */
+export const USAGE_ROUTE = '/tool-switch/usage'
 
 /** 请求体上限，避免误传大文件。 */
 const MAX_BODY_BYTES = 64 * 1024
@@ -181,6 +186,8 @@ export function apply(ctx, config) {
   const settings = config ?? {}
   const stateDir = settings.stateDir ? String(settings.stateDir) : path.join(os.homedir(), '.dsh-tool-switch')
   const store = new SelectionStore(path.join(stateDir, 'state.json'))
+  // 调用次数索引：扫 ~/.dsh/sessions 下的会话日志，按 (size, mtime) 增量缓存。
+  const usageIndex = new UsageIndex({ cacheFile: path.join(stateDir, 'usage-cache.json') })
 
   const warn = (message, cause) => {
     try {
@@ -335,18 +342,45 @@ export function apply(ctx, config) {
     return firstLine.length > 160 ? `${firstLine.slice(0, 157)}…` : firstLine
   }
 
-  function buildState(sessionId) {
+  /** 参数签名：`(a, b?, c)` —— 只列前 12 个，避免几十个参数把行撑爆。 */
+  function signatureOf(definition) {
+    const schema = definition?.parameters ?? definition?.schema ?? definition?.inputSchema
+    const properties = schema?.properties
+    if (properties === null || typeof properties !== 'object') return ''
+    const required = new Set(Array.isArray(schema?.required) ? schema.required : [])
+    const keys = Object.keys(properties)
+    if (keys.length === 0) return '()'
+    const shown = keys.slice(0, 12).map((key) => (required.has(key) ? key : `${key}?`))
+    if (keys.length > shown.length) shown.push('…')
+    return `(${shown.join(', ')})`
+  }
+
+  /** 展开时显示的完整说明（首行已单独显示，这里保留换行后的细节）。 */
+  function detailOf(name, fallback, total) {
+    const raw = typeof fallback === 'string' ? fallback.trim() : ''
+    if (raw.length === 0) return ''
+    const body = raw.length > 1200 ? `${raw.slice(0, 1197)}…` : raw
+    if (total !== undefined && total > 0) return `被调用 ${total} 次\n${body}`
+    return body
+  }
+
+  function buildState(sessionId, options) {
+    const detail = options?.detail === true
     const agent = live.get(sessionId)
     const view = agent === undefined ? undefined : viewOf(agent)
 
     const descriptions = new Map()
+    const signatures = new Map()
     let globalNames = []
     try {
       const definitions = ctx.tools.definitions()
       if (Array.isArray(definitions)) {
         globalNames = definitions.map((definition) => definition?.name).filter((entry) => typeof entry === 'string')
         for (const definition of definitions) {
-          if (typeof definition?.name === 'string') descriptions.set(definition.name, definition.description ?? '')
+          if (typeof definition?.name === 'string') {
+            descriptions.set(definition.name, definition.description ?? '')
+            signatures.set(definition.name, signatureOf(definition))
+          }
         }
       }
     } catch (error) {
@@ -378,6 +412,8 @@ export function apply(ctx, config) {
         name,
         label: group.tool,
         description: descriptionOf(name, descriptions.get(name)),
+        signature: signatures.get(name) ?? '',
+        detail: detail ? detailOf(name, descriptions.get(name)) : '',
         enabled,
         locked: !isRestrictable,
       })
@@ -435,7 +471,7 @@ export function apply(ctx, config) {
           send(res, 400, { ok: false, error: 'missing ?session=<id>' })
           return
         }
-        send(res, 200, buildState(sessionId))
+        send(res, 200, buildState(sessionId, { detail: url.searchParams.get('detail') === '1' }))
         return
       }
       if (req.method !== 'POST') {
@@ -470,8 +506,44 @@ export function apply(ctx, config) {
     }
   }
 
+  /**
+   * 调用次数统计。和状态路由分开挂：冷启动要把 ~150MB 会话日志全解一遍（约 4 秒），
+   * 放在同一个请求里会让面板白屏，所以 UI 先拿工具列表，再单独补这批数字。
+   * 只有 GET/HEAD；统计本身是只读的，不需要写通道。
+   */
+  const usageHandler = async (req, res) => {
+    try {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, {
+          allow: 'GET, HEAD',
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'no-store',
+        })
+        res.end(`${JSON.stringify({ ok: false, error: `method not allowed: ${req.method}` })}\n`)
+        return
+      }
+      const url = new URL(req.url ?? USAGE_ROUTE, 'http://localhost')
+      const sessionId = url.searchParams.get('session') ?? ''
+      if (sessionId.length === 0) {
+        send(res, 400, { ok: false, error: 'missing ?session=<id>' })
+        return
+      }
+      send(res, 200, await usageIndex.scan(sessionId))
+    } catch (error) {
+      try {
+        send(res, 500, { ok: false, error: String(error?.message ?? error) })
+      } catch {
+        /* 响应已经开始写了 */
+      }
+    }
+  }
+
   ctx.inject(['webServer'], (webCtx) => {
     webCtx.effect(() => webCtx.webServer.register({ kind: 'exact', path: ROUTE, handler }), 'tool-switch: state route')
+    webCtx.effect(
+      () => webCtx.webServer.register({ kind: 'exact', path: USAGE_ROUTE, handler: usageHandler }),
+      'tool-switch: usage route',
+    )
     try {
       ctx.logger?.info?.(`[tool-switch] ready — ${ROUTE} on ${webCtx.webServer.getOrigin?.() ?? 'webServer'}`)
     } catch {

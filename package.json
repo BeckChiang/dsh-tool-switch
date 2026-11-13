@@ -1,7 +1,7 @@
 {
   "name": "dsh-tool-switch",
-  "version": "0.2.2",
-  "description": "Per-session tool visibility switch for DeepSeek Harness: a button under the composer, grouped tool picker, applied to live sessions.",
+  "version": "0.3.0",
+  "description": "Per-session tool visibility switch for DeepSeek Harness: a button under the composer, grouped tool picker with call-count statistics, applied to live sessions.",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -26,17 +26,28 @@
     "dsh-plugin",
     "cordis",
     "tools",
-    "plugin"
+    "plugin",
+    "usage",
+    "statistics"
   ],
   "author": "suqing114 (https://github.com/suqing114)",
+  "contributors": [
+    "suqing114 (https://github.com/suqing114) - 上游作者"
+  ],
+  "forkOf": {
+    "name": "dsh-tool-switch",
+    "author": "suqing114",
+    "url": "https://github.com/suqing114/dsh-tool-switch",
+    "version": "0.2.2"
+  },
   "license": "MIT",
-  "homepage": "https://github.com/suqing114/dsh-tool-switch#readme",
+  "homepage": "https://github.com/BeckChiang/dsh-tool-switch#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/suqing114/dsh-tool-switch.git"
+    "url": "git+https://github.com/BeckChiang/dsh-tool-switch.git"
   },
   "bugs": {
-    "url": "https://github.com/suqing114/dsh-tool-switch/issues"
+    "url": "https://github.com/BeckChiang/dsh-tool-switch/issues"
   },
   "publishConfig": {
     "access": "public"
@@ -48,7 +59,9 @@
     "client": {
       "platform": "web",
       "immediately": true,
-      "inject": ["@deepseek-ai/dsh-client-ui-conversation"]
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
     }
   }
 }
