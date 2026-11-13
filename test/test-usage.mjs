@@ -169,4 +169,19 @@ const openedDetail = renderToStaticMarkup(
 )
 assert.ok(openedDetail.includes('第二行细节'), '展开后应显示完整说明')
 
+// 「只看未用」：本会话口径下 pwsh 有 12 次、网络检索 1 次，都不该出现在筛完的列表里。
+const unusedView = renderToStaticMarkup(
+  React.createElement('div', null, renderToolTree(Object.assign({}, base, { unusedOnly: true, metric: 'session' }))),
+)
+assert.ok(unusedView.includes('data-tool="never_used"'), '只看未用应留下从没调用过的工具')
+assert.equal(unusedView.includes('data-tool="pwsh"'), false, '用过 12 次的工具不该出现在未用列表里')
+assert.equal(unusedView.includes('data-tool="web_search"'), false, '只调用过 1 次的工具也不算未用')
+assert.ok(unusedView.includes('未用'), '筛完的组头应标出这一组有几个未用')
+
+// 换口径：「只看未用」跟着口径走——全局口径下 pwsh 有 7.9k 次，同样要筛掉。
+const unusedGlobal = renderToStaticMarkup(
+  React.createElement('div', null, renderToolTree(Object.assign({}, base, { unusedOnly: true, metric: 'all' }))),
+)
+assert.equal(unusedGlobal.includes('data-tool="pwsh"'), false, '全局口径下 pwsh 也不是未用')
+
 console.log('全部调用次数统计检查通过')

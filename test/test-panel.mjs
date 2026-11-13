@@ -205,6 +205,22 @@ assert.ok(
   '切到全局口径后 read 的徽章没有变成 400 次',
 )
 
+// 「未用」筛选：全局口径下 read 400 次、write 7 次，只有 ops_bash 一次没跑过。
+const unusedButton = live().querySelector('[data-filter="unused"]')
+assert.ok(unusedButton, '面板里没有「未用」筛选按钮')
+assert.equal(unusedButton.disabled, false, '统计就绪后「未用」筛选应是可点的')
+assert.match(unusedButton.textContent, /未用/)
+unusedButton.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+await wait(60)
+assert.ok(live().querySelector('[data-tool="ops_bash"]'), '筛选后没跑过的工具应该还在')
+assert.equal(live().querySelector('[data-tool="read"]'), null, '筛选后调用过 400 次的工具应被滤掉')
+assert.equal(live().querySelector('[data-tool="write"]'), null, '筛选后调用过 7 次的工具也应被滤掉')
+
+// 再点一次取消筛选，全部工具回来
+live().querySelector('[data-filter="unused"]').dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+await wait(60)
+assert.ok(live().querySelector('[data-tool="read"]'), '取消筛选后应恢复全部工具')
+
 // 再点一次关闭按钮：面板消失，按钮还在
 const close = live().querySelector('button[title^="关闭"]')
 close.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
